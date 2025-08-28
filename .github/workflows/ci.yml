@@ -2,13 +2,17 @@ name: CI
 
 on:
   push:
-    branches: [ "**" ]
+    branches: ['**']
   pull_request:
 
 permissions:
-  contents: read
-  pages: write          # para publicar o relatório no GitHub Pages (job pages)
-  id-token: write
+  contents: read         # ler o repo
+  pages: write           # publicar no Pages
+  id-token: write        # OIDC para deploy-pages
+
+concurrency:
+  group: 'pages'
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -23,24 +27,17 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "11"
+          java-version: '11'
           cache: maven
 
       - name: Run tests (gera allure-results)
-        run: |
-          mvn -U -B \
-            -DbaseUrl=https://serverest.dev \
-            -Drate.limit.enabled=true \
-            -Drate.limit.probe=3 \
-            -Drate.limit.sleep=0 \
-            clean test
+        run: mvn -B -fae -DskipTests=false clean test
 
-      # Gera o relatório HTML do Allure dentro de target/site/allure-maven-plugin
-      - name: Generate Allure HTML
+      - name: Generate Allure static site
         if: always()
-        run: mvn -B allure:report
+        run: mvn -B io.qameta.allure:allure-maven:2.12.0:report
 
-      # Salva artefatos da pipeline (você baixa direto pela UI do Actions)
+      # Artefatos para auditoria/baixar no run
       - name: Upload surefire-reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -55,29 +52,35 @@ jobs:
           name: allure-results
           path: target/allure-results
 
-      - name: Upload Allure HTML (artefato)
+      # Este é o site estático (HTML/CSS/JS) do Allure
+      - name: Upload allure-site (para Pages)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: allure-report
-          path: target/site/allure-maven-plugin
-
-      # Publicação opcional do relatório no GitHub Pages
-      - name: Prepare Pages artifact
-        if: always()
-        uses: actions/upload-pages-artifact@v3
-        with:
+          name: allure-site
           path: target/site/allure-maven-plugin
 
   pages:
     name: Deploy Allure to GitHub Pages
     needs: test
-    if: always()
+    if: always()           # publica mesmo se testes falharem (útil para investigar)
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deploy.outputs.page_url }}
+
     steps:
+      - name: Baixar artefato do site
+        uses: actions/download-artifact@v4
+        with:
+          name: allure-site
+          path: site
+
+      - name: Upload para Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
       - name: Deploy
-        id: deployment
+        id: deploy
         uses: actions/deploy-pages@v4
