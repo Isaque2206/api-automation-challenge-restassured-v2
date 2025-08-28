@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+
+permissions:
+  contents: read
+  pages: write          # para publicar o relatório no GitHub Pages (job pages)
+  id-token: write
+
+jobs:
+  test:
+    name: Build & Test (JDK 11)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Temurin JDK 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+          cache: maven
+
+      - name: Run tests (gera allure-results)
+        run: |
+          mvn -U -B \
+            -DbaseUrl=https://serverest.dev \
+            -Drate.limit.enabled=true \
+            -Drate.limit.probe=3 \
+            -Drate.limit.sleep=0 \
+            clean test
+
+      # Gera o relatório HTML do Allure dentro de target/site/allure-maven-plugin
+      - name: Generate Allure HTML
+        if: always()
+        run: mvn -B allure:report
+
+      # Salva artefatos da pipeline (você baixa direto pela UI do Actions)
+      - name: Upload surefire-reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports
+
+      - name: Upload allure-results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-results
+          path: target/allure-results
+
+      - name: Upload Allure HTML (artefato)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: target/site/allure-maven-plugin
+
+      # Publicação opcional do relatório no GitHub Pages
+      - name: Prepare Pages artifact
+        if: always()
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/site/allure-maven-plugin
+
+  pages:
+    name: Deploy Allure to GitHub Pages
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

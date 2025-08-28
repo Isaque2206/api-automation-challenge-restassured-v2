@@ -1,0 +1,8 @@
+﻿target/
+.allure/
+*.log
+*.class
+*.iml
+.idea/
+.vscode/
+.DS_Store
